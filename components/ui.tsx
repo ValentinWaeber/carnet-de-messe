@@ -2,6 +2,7 @@
 import {
   useEffect,
   useRef,
+  useId,
   type ReactNode,
   type ButtonHTMLAttributes,
 } from "react";
@@ -53,6 +54,7 @@ export function Modal({
   wide?: boolean;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
+  const headingId = useId();
   useEffect(() => {
     ref.current?.showModal();
     const dialog = ref.current;
@@ -61,6 +63,7 @@ export function Modal({
   return (
     <dialog
       ref={ref}
+      aria-labelledby={headingId}
       className={`modal ${wide ? "modal-wide" : ""}`}
       onCancel={(e) => {
         e.preventDefault();
@@ -71,7 +74,7 @@ export function Modal({
       }}
     >
       <div className="modal-heading">
-        <h2>{title}</h2>
+        <h2 id={headingId}>{title}</h2>
         <IconButton label="Fermer" onClick={onClose}>
           <X size={20} />
         </IconButton>

@@ -33,10 +33,28 @@ import type { BookDocument } from "@/lib/document";
 import { Brand, IconButton, Modal, Notice } from "./ui";
 import { PagePreview } from "./page-preview";
 import { FormatPicker } from "./format-picker";
+import { AccountMenu } from "./account-menu";
+import {
+  instantiateTemplate,
+  type CatalogEntry,
+  type TemplateBundle,
+} from "@/lib/catalog";
 
 const previews = templates.map((t) => createTemplateDocument(t.id));
 export default function Home() {
   const router = useRouter();
+  const [catalog, setCatalog] = useState<CatalogEntry[]>(
+    templates.map((t, i) => ({
+      id: t.id,
+      name: t.name,
+      description: t.description,
+      category: t.category,
+      document: previews[i],
+      sources: {},
+      revision: 1,
+      updatedAt: previews[i].updatedAt,
+    })),
+  );
   const [category, setCategory] = useState("Tous les modèles"),
     [chosen, setChosen] = useState<string | null>(null),
     [projects, setProjects] = useState<BookDocument[]>([]),
@@ -51,16 +69,48 @@ export default function Home() {
       .then(setProjects)
       .catch((e) => setError(storageError(e)));
   }, []);
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/templates", { cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok)
+          throw new Error(
+            "La collection n’a pas pu être actualisée. Rechargez la page avant de choisir un modèle.",
+          );
+        return response.json();
+      })
+      .then((data) => {
+        if (alive) setCatalog(data.templates);
+      })
+      .catch((error) => {
+        if (alive) setError(error.message);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
   const refresh = async () => setProjects(await listProjects());
   async function create(format: BookDocument["format"]) {
     setBusy(true);
     setError("");
     try {
-      const doc =
-        chosen === "blank"
-          ? createBlankDocument(format)
-          : createTemplateDocument(chosen!, format);
-      await saveProject(doc);
+      let doc: BookDocument;
+      if (chosen === "blank") {
+        doc = createBlankDocument(format);
+        await saveProject(doc);
+      } else {
+        const response = await fetch(`/api/templates/${chosen}`, {
+          cache: "no-store",
+        });
+        if (!response.ok)
+          throw new Error(
+            "Ce modèle n’est pas disponible. Rechargez la collection.",
+          );
+        const bundle: TemplateBundle = await response.json();
+        const instance = instantiateTemplate(bundle, format);
+        doc = instance.doc;
+        await saveBundle(doc, instance.images);
+      }
       router.push(`/atelier/${doc.id}`);
     } catch (e) {
       setError(storageError(e));
@@ -95,6 +145,7 @@ export default function Home() {
               <span className="count">{projects.length}</span>
             )}
           </a>
+          <AccountMenu />
           <button
             className="button primary small"
             onClick={() =>
@@ -148,12 +199,17 @@ export default function Home() {
             </span>
             <div className="hero-book-back" />
             <div className="hero-book">
-              <PagePreview doc={previews[3]} width={270} />
+              <PagePreview
+                doc={catalog[3].document}
+                sources={catalog[3].sources}
+                width={270}
+              />
             </div>
             <div className="hero-swatch">
               <Leaf size={16} />
               <span>
-                Botanique<small>L’élégance au naturel</small>
+                {catalog[3].name}
+                <small>L’élégance au naturel</small>
               </span>
             </div>
             <span className="hero-art-number">01 / 15</span>
@@ -220,7 +276,7 @@ export default function Home() {
             </button>
           </div>
           <div className="template-grid">
-            {templates.map(
+            {catalog.map(
               (t, i) =>
                 (category === "Tous les modèles" ||
                   category === t.category) && (
@@ -232,7 +288,11 @@ export default function Home() {
                   >
                     <div className={`template-stage stage-${i % 4}`}>
                       <div className="template-book">
-                        <PagePreview doc={previews[i]} width={174} />
+                        <PagePreview
+                          doc={t.document}
+                          sources={t.sources}
+                          width={174}
+                        />
                       </div>
                       <span className="template-use">
                         Personnaliser

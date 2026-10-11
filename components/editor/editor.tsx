@@ -21,6 +21,7 @@ import {
   assetIds,
   type Block,
   type RichText,
+  type BookDocument,
 } from "@/lib/document";
 import { saveImage, blobDataUrl, storageError } from "@/lib/storage";
 import { importImage } from "@/lib/images";
@@ -36,7 +37,19 @@ import { FormatPicker } from "../format-picker";
 import { EditorHeader, EditorFooter } from "./editor-chrome";
 import { ExportDialog } from "./export-dialog";
 
-export default function Editor({ id }: { id: string }) {
+export type EditorPublication = {
+  busy: boolean;
+  onPublish: (doc: BookDocument) => Promise<void>;
+};
+export default function Editor({
+  id,
+  publication,
+  returnTo = "/#projets",
+}: {
+  id: string;
+  publication?: EditorPublication;
+  returnTo?: string;
+}) {
   const router = useRouter(),
     book = useBookEditor(id),
     { doc, update, undo: undoAction, redo: redoAction } = book;
@@ -364,6 +377,25 @@ export default function Editor({ id }: { id: string }) {
   return (
     <div className="editor-shell">
       <EditorHeader
+        publication={
+          publication
+            ? {
+                busy:
+                  publication.busy ||
+                  !!editing ||
+                  importing ||
+                  book.status === "Échec de sauvegarde",
+                onPublish: async () => {
+                  try {
+                    await book.flush();
+                    await publication.onPublish(doc);
+                  } catch (error) {
+                    book.setError(storageError(error));
+                  }
+                },
+              }
+            : undefined
+        }
         title={doc.title}
         status={book.status}
         canUndo={book.canUndo}
@@ -381,7 +413,7 @@ export default function Editor({ id }: { id: string }) {
         onReturn={async () => {
           try {
             await book.flush();
-            router.push("/#projets");
+            router.push(returnTo);
           } catch {
             book.setError(
               "Enregistrement impossible. Exportez votre projet avant de quitter.",

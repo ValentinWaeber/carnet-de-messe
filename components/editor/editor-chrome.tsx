@@ -25,6 +25,7 @@ type HeaderProps = {
   onZoom: (n: number) => void;
   onPreview: () => void;
   onExport: () => void;
+  publication?: { busy: boolean; onPublish: () => void };
 };
 export function EditorHeader({
   title,
@@ -39,6 +40,7 @@ export function EditorHeader({
   onZoom,
   onPreview,
   onExport,
+  publication,
 }: HeaderProps) {
   return (
     <header className="editor-header">
@@ -69,6 +71,15 @@ export function EditorHeader({
         </div>
       </div>
       <div className="editor-header-tools">
+        {publication && (
+          <button
+            className="button primary small publish-template"
+            disabled={publication.busy}
+            onClick={publication.onPublish}
+          >
+            {publication.busy ? "Publication…" : "Publier le modèle"}
+          </button>
+        )}
         <div className="history-tools">
           <IconButton label="Annuler" disabled={!canUndo} onClick={onUndo}>
             <Undo2 size={18} />

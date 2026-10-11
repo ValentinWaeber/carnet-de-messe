@@ -4,10 +4,11 @@ Première version locale d’un atelier de création de carnets de messe. L’ap
 
 ## Installation et lancement sous Windows
 
-Utiliser Node.js 20.9 minimum (Node.js 24 utilisé pour les vérifications), npm et PowerShell, depuis le dossier du projet :
+Utiliser **Node.js 24.15 minimum**, npm et PowerShell, depuis le dossier du projet. SQLite intégré à Node.js est utilisé pour les comptes et les modèles :
 
 ```powershell
 npm.cmd ci
+Copy-Item .env.example .env.local
 npx.cmd playwright install chromium
 npm.cmd run dev
 ```
@@ -22,6 +23,54 @@ npm.cmd run start
 ```
 
 Ne pas utiliser un export statique de Next.js : `/api/pdf` a besoin d’un serveur Node.js capable de lancer Chromium.
+
+## Comptes, validation e-mail et administration
+
+Le lien **Connexion** ouvre `/connexion` : inscription, connexion, renvoi du lien de validation et récupération du mot de passe. Le mot de passe doit contenir au moins 12 caractères. Une adresse non vérifiée ne peut pas ouvrir de session. Les liens de validation et de récupération expirent au bout d’une heure ; les sessions durent sept jours. Better Auth gère le hachage des mots de passe, les cookies HttpOnly, la révocation des sessions et la limitation des tentatives. La réinitialisation du mot de passe révoque les sessions existantes.
+
+Dans `.env.local`, renseigner `ADMIN_EMAILS` avec la ou les adresses administrateur, séparées par des virgules. **Créer son compte puis vérifier cette adresse** pour accéder à `/admin`. Aucun mot de passe administrateur par défaut et aucune promotion du premier inscrit. Les droits sont contrôlés côté serveur sur chaque accès et chaque publication, à partir de l’adresse vérifiée et de la configuration serveur ; ils ne peuvent pas être choisis dans un formulaire.
+
+### Boîte de test locale
+
+Avec `MAIL_MODE=local` et `npm.cmd run dev`, les e-mails sont déposés dans `.data/mail/`, sans envoi réel. Après inscription, lancer dans un second terminal :
+
+```powershell
+npm.cmd run mail:dev
+```
+
+La commande affiche les vingt derniers e-mails et leurs liens à ouvrir dans le navigateur. Cette boîte est lue directement depuis le disque ; aucun endpoint HTTP ne permet d’obtenir les liens. **Elle est désactivée en production.** Les données locales, e-mails, secrets et fichiers `.env.local` sont exclus de Git. Les tests automatiques utilisent une autre base et une autre boîte, sans créer de compte Valentin.
+
+### Envoi réel avec SMTP
+
+Configurer dans `.env.local` ou dans les variables de l’hébergeur :
+
+```dotenv
+BETTER_AUTH_URL=https://votre-domaine.ch
+BETTER_AUTH_SECRET=un-secret-aleatoire-d-au-moins-32-caracteres
+ADMIN_EMAILS=votre-adresse@example.com
+MAIL_MODE=smtp
+SMTP_HOST=smtp.votre-fournisseur.ch
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=votre-identifiant
+SMTP_PASSWORD=votre-mot-de-passe-smtp
+SMTP_FROM=Maison du carnet <contact@votre-domaine.ch>
+DATA_DIR=/chemin/vers/un/disque/persistant/carnet
+```
+
+Le port 587 utilise STARTTLS obligatoire ; pour le port 465, définir `SMTP_SECURE=true`. Le certificat TLS est vérifié. Utiliser une adresse d’expédition validée chez le fournisseur. Générer le secret avec `node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"`, puis conserver sa valeur dans les variables serveur. En développement, un secret persistant est généré automatiquement dans `.data/auth-secret` si la variable est vide. En production, le service de comptes refuse de démarrer si SMTP, l’URL ou le secret ne sont pas configurés ; HTTPS est requis hors localhost. Redémarrer le serveur après changement de configuration. Aucun e-mail réel n’a été envoyé pendant l’implémentation.
+
+### Modifier les modèles
+
+1. Se connecter avec le compte administrateur vérifié, puis ouvrir **Administration**.
+2. Choisir **Modifier** sur un des quinze modèles. L’éditeur habituel permet de modifier les textes, les images, les couleurs, le format, les blocs et les pages. Le bandeau du haut édite le nom, la description et la catégorie.
+3. Le brouillon est conservé sur cet appareil, indépendamment de la collection publique. **Publier le modèle**, puis confirmer pour mettre à jour la collection.
+4. Les prochains carnets et les miniatures utilisent la version publiée. Les carnets déjà créés restent des copies indépendantes.
+5. **Recharger la version publiée** remplace le brouillon après confirmation. **Restaurer** dans l’administration republie le modèle d’origine après confirmation. Une révision concurrente est refusée pour éviter d’écraser une publication plus récente.
+
+Les comptes, sessions et modèles publiés sont conservés dans `.data/carnet.sqlite` (schéma d’authentification créé automatiquement au premier accès). Les modèles d’origine restent dans `lib/templates.ts`. Les publications acceptent au plus 32 Mo de JSON, 30 images et 20 Mo d’images décodées, avec validation du document, des références et des signatures PNG/JPEG/WebP. Les images ne peuvent pas être des URL distantes ou du SVG arbitraire. Sauvegarder le répertoire de données complet **après arrêt du serveur**, y compris les fichiers WAL éventuels, et conserver les secrets de production séparément.
+
+Cette version serveur utilise **une instance Node.js avec un disque persistant**. Un système de fichiers éphémère sur un hébergement serverless ne convient pas à SQLite ; prévoir PostgreSQL et un stockage objet pour plusieurs instances. Les projets personnels restent dans IndexedDB : le compte ne synchronise pas encore les carnets entre appareils.
 
 ## Utilisation
 
@@ -93,6 +142,7 @@ npm.cmd run typecheck
 npm.cmd run lint
 npm.cmd test
 npm.cmd run test:e2e
+npm.cmd run test:auth
 npm.cmd run build
 npm.cmd run format:check
 ```
@@ -100,6 +150,8 @@ npm.cmd run format:check
 Les tests unitaires vérifient les unités, la validation, l’indépendance des modèles, les UUID de duplication, la mise à l’échelle, les débordements avec rotation, l’historique et l’échappement HTML. Les tests Chromium vérifient les parcours de création vierge et depuis modèle, la saisie, les mouvements à plusieurs zooms, la persistance d’image, la réouverture, les pages, le feuilletage, le ZIP avec image et les exports PDF. Les PDF sont lus avec `pdf-lib` pour vérifier leurs dimensions, leur pagination, les ressources image et la présence d’opérateurs de texte.
 
 Les captures ordinateur et téléphone sont générées dans `test-results/` (non versionné), avec des traces pour les tests en échec. Playwright utilise `localhost`, comme le serveur Next.js existant ; il réutilise un serveur déjà lancé ou démarre celui du projet.
+
+`test:auth` démarre un serveur isolé sur `localhost:3001`, avec sa propre base SQLite, son secret de test et sa boîte locale sous `.data/test-runs/`. Il vérifie inscription, refus avant vérification, connexion, cookies HttpOnly, brouillon persistant, publication, conflit de révision, restauration, refus d’un compte ordinaire, protection contre une origine étrangère, déconnexion et réinitialisation. Aucun fournisseur d’e-mails réel n’est appelé. Le port 3001 doit être libre.
 
 ## Limites connues
 
@@ -111,13 +163,13 @@ Les captures ordinateur et téléphone sont générées dans `test-results/` (no
 - Le contrôle des images à 180 ppp signale une définition faible ; ce n’est pas un contrôle prépresse complet. Viser 300 ppp pour les photographies.
 - Le PDF contient des pages simples dans l’ordre de lecture : **pas d’imposition en livret, pas de fonds perdus, pas de repères de coupe, pas de certification PDF/X**. Faire valider les réglages par l’imprimeur et imprimer à 100 %.
 - Pour un nombre impair de pages, l’aperçu ajoute une page blanche virtuelle avant le dos afin de feuilleter correctement. Cette page virtuelle n’est pas ajoutée au document ni au PDF.
-- Pas de comptes, synchronisation, paiement, collaboration ou recherche d’imprimeries dans cette version.
+- Pas encore de synchronisation des carnets personnels, paiement, collaboration ou recherche d’imprimeries.
 - L’audit npm du 11 octobre 2026 signale cinq alertes élevées dans la chaîne **de développement** `eslint-config-next → fast-glob → micromatch → braces`. L’avis [GHSA-vfj7-8cjw-p6xm](https://github.com/advisories/GHSA-vfj7-8cjw-p6xm) ne propose alors aucun correctif de `braces`. Le remplacement forcé par ESLint Next 14 suggéré par npm n’a pas été appliqué pour préserver Next.js 16.4. Aucun `npm audit fix --force` n’a été utilisé. Recontrôler l’audit lors des mises à jour.
 
 ## Prochaines étapes
 
 1. Ajouter un dépôt serveur PostgreSQL des documents versionnés, sans modifier le modèle de document ni le moteur de rendu.
-2. Ajouter les comptes et les autorisations, un import des projets locaux vers les comptes et une stratégie de résolution des conflits.
+2. Relier les comptes existants aux carnets personnels, avec import des projets locaux et résolution des conflits de synchronisation.
 3. Stocker les images dans un stockage objet, en conservant leurs références stables ; prévoir quotas et tâches d’export PDF en file d’attente.
 4. Ajouter les préférences d’impression, les fonds perdus et l’imposition en accord avec un imprimeur.
 5. Introduire ensuite la recherche d’imprimeries, les devis et les tarifs négociés, avec des partenaires réels.

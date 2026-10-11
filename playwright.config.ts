@@ -6,6 +6,7 @@ export default defineConfig({
   timeout: 90000,
   expect: { timeout: 15000 },
   reporter: "list",
+  outputDir: "test-results/workshop",
   use: {
     baseURL: "http://localhost:3000",
     viewport: { width: 1440, height: 960 },

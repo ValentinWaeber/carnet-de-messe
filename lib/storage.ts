@@ -21,9 +21,9 @@ const db = () =>
     },
   });
 export async function listProjects() {
-  return (await (await db()).getAll("projects")).sort((a, b) =>
-    b.updatedAt.localeCompare(a.updatedAt),
-  );
+  return (await (await db()).getAll("projects"))
+    .filter((doc) => !doc.id.startsWith("admin-"))
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 export async function loadProject(id: string) {
   const doc = await (await db()).get("projects", id);
